@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VR Reticle Focus — 3D / 2D / 360 Dome / 360 Tunnel + Media Band + 360 Overlays</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans KR",Helvetica,Arial}
+  #ui{position:fixed;top:10px;left:10px;z-index:10;background:rgba(20,20,24,.78);color:#eee;padding:12px;border-radius:14px;backdrop-filter:blur(8px);max-width:96vw}
+  #ui h1{margin:0 0 8px;font-size:14px;font-weight:800;letter-spacing:.2px}
+  .group{margin-top:6px;padding:8px;border-radius:10px;background:rgba(255,255,255,.05)}
+  .row{display:flex;align-items:center;gap:8px;margin:6px 0;flex-wrap:wrap}
+  .row label{min-width:150px;font-size:12px;opacity:.9}
+  .row input[type="range"]{width:200px}
+  .row input[type="color"]{width:34px;height:24px;padding:0;border:none}
+  .row input[type="text"]{width:260px;max-width:60vw;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#fff}
+  .small{font-size:11px;opacity:.85}
+  .title{font-size:11px;opacity:.9;background:rgba(255,255,255,.07);padding:2px 6px;border-radius:6px}
+  .hidden{display:none}
+  button{background:rgba(255,255,255,.1);color:#eee;border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:6px 10px;cursor:pointer}
+  button:hover{background:rgba(255,255,255,.16)}
+  @media (max-width:640px){#ui{left:50%;transform:translateX(-50%)}.row label{min-width:130px}.row input[type="range"]{width:160px}}
+
+#vrSlot button, #vrSlot .vr-button { position: relative !important; z-index: 100000 !important; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js"
+  }
+}
+</script>
+</head>
+<body>
+<div id="ui">
+  <h1>Reticle Focus (WebXR + Three.js)</h1>
+<div class="row">
+  <label>WebXR</label>
+  <span id="vrSlot"></span>
+  <span class="small">PC는 Chrome/Edge + HTTPS(또는 http://localhost) 권장</span>
+</div>
+
+  <!-- 모드 선택 -->
+  <div class="group">
+    <div class="row">
+      <label>모드 선택</label>
+      <label><input type="radio" name="mode" value="3d" checked> 3D 씬</label>
+      <label><input type="radio" name="mode" value="2d"> 2D 평면</label>
+      <label><input type="radio" name="mode" value="360"> 360° 돔</label>
+      <label><input type="radio" name="mode" value="tunnel"> 360° 터널(Procedural)</label>
+    </div>
+
+    <!-- 2D 평면 업로드/URL -->
+    <div id="panel2D" class="hidden">
+      <div class="row"><label>2D 이미지 업로드</label><input id="img2d" type="file" accept="image/*"></div>
+      <div class="row"><label>2D 이미지 URL</label><input id="img2dUrl" type="text" placeholder="https://example.com/your-image.jpg"><button id="loadImg2d">불러오기</button></div>
+      <div class="row"><label>2D 동영상 업로드</label><input id="vid2d" type="file" accept="video/*"><button id="play2d" class="small">재생/일시정지</button></div>
+      <div class="row"><label>2D 동영상 URL</label><input id="vid2dUrl" type="text" placeholder="https://example.com/your-video.mp4"><button id="loadVid2d">불러오기</button></div>
+    </div>
+
+    <!-- 360 돔 업로드/URL -->
+    <div id="panel360" class="hidden">
+      <div class="row"><label>360° 이미지(이퀴렉) 업로드</label><input id="img360" type="file" accept="image/*"></div>
+      <div class="row"><label>360° 이미지 URL</label><input id="img360Url" type="text" placeholder="https://example.com/panorama_8192x4096.jpg"><button id="loadImg360">불러오기</button></div>
+      <div class="row"><label>360° 동영상 업로드</label><input id="vid360" type="file" accept="video/*"><button id="play360" class="small">재생/일시정지</button></div>
+      <div class="row"><label>360° 동영상 URL</label><input id="vid360Url" type="text" placeholder="https://example.com/your-360-video.mp4"><button id="loadVid360">불러오기</button></div>
+    </div>
+
+    <!-- 360 터널(절차적) + 2D 미디어 밴드 + 360 오버레이 창 -->
+    <div id="panelTunnel" class="">
+      <!-- 절차적 터널 기본 -->
+      <div class="row"><label for="tunSpeed">속도</label><input id="tunSpeed" type="range" min="0" max="5" step="0.01" value="1.2"/><span id="tunSpeedVal" class="small">1.20</span></div>
+      <div class="row"><label for="tunRepeat">링 반복(깊이)</label><input id="tunRepeat" type="range" min="6" max="50" step="1" value="24"/><span id="tunRepeatVal" class="small">24</span></div>
+      <div class="row"><label for="tunSpokes">방사 무늬</label><input id="tunSpokes" type="range" min="0" max="16" step="1" value="6"/><span id="tunSpokesVal" class="small">6</span></div>
+      <div class="row"><label for="tunDark">어둡기</label><input id="tunDark" type="range" min="0" max="1" step="0.01" value="0.75"/><span id="tunDarkVal" class="small">0.75</span></div>
+      <div class="row"><label for="tunTint">터널 틴트</label><input id="tunTint" type="color" value="#0a0f2a"/></div>
+
+      <!-- (기존) 미디어 터널: 2D 비디오를 원통 내 띠로 표시 -->
+      <div class="group" style="margin-top:10px">
+        <div class="row"><strong>미디어 터널(2D 비디오 랩)</strong></div>
+        <div class="row"><label>비디오 업로드</label><input id="tunVidFile" type="file" accept="video/*"><button id="tunVidPlay" class="small">재생/일시정지</button></div>
+        <div class="row"><label>비디오 URL</label><input id="tunVidUrl" type="text" placeholder="https://example.com/clip.mp4"><button id="tunVidLoadUrl">불러오기</button></div>
+        <div class="row"><label>옵션</label><label><input id="tunVidMuted" type="checkbox" checked> Muted</label><label><input id="tunVidLoop" type="checkbox" checked> Loop</label><label><input id="pauseWhenHidden" type="checkbox" checked> 숨김 시 일시정지</label></div>
+        <div class="row"><label for="bandCenter">밴드 위치(v)</label><input id="bandCenter" type="range" min="0.0" max="1.0" step="0.001" value="0.5"/><span id="bandCenterVal" class="small">0.50</span></div>
+        <div class="row"><label for="bandHeight">밴드 높이</label><input id="bandHeight" type="range" min="0.05" max="1.0" step="0.005" value="0.35"/><span id="bandHeightVal" class="small">0.35</span></div>
+        <div class="row"><label for="bandEdge">엣지 소프트</label><input id="bandEdge" type="range" min="0.0" max="0.3" step="0.005" value="0.03"/><span id="bandEdgeVal" class="small">0.03</span></div>
+        <div class="row"><label for="bandOpacity">최대 불투명도</label><input id="bandOpacity" type="range" min="0.0" max="1.0" step="0.01" value="0.95"/><span id="bandOpacityVal" class="small">0.95</span></div>
+        <div class="row"><label><input id="autoFade" type="checkbox" checked> Auto Fade</label><span class="small">fadeIn / holdOn / fadeOut / holdOff</span></div>
+        <div class="row"><label for="fadeIn">fadeIn (s)</label><input id="fadeIn" type="range" min="0.1" max="5" step="0.1" value="1.0"/><span id="fadeInVal" class="small">1.0s</span></div>
+        <div class="row"><label for="holdOn">holdOn (s)</label><input id="holdOn" type="range" min="0.0" max="10" step="0.1" value="2.0"/><span id="holdOnVal" class="small">2.0s</span></div>
+        <div class="row"><label for="fadeOut">fadeOut (s)</label><input id="fadeOut" type="range" min="0.1" max="5" step="0.1" value="1.2"/><span id="fadeOutVal" class="small">1.2s</span></div>
+        <div class="row"><label for="holdOff">holdOff (s)</label><input id="holdOff" type="range" min="0.0" max="10" step="0.1" value="1.5"/><span id="holdOffVal" class="small">1.5s</span></div>
+        <div class="row"><label>수동</label><button id="showNow" class="small">지금 나타내기</button><button id="hideNow" class="small">지금 숨기기</button></div>
+      </div>
+
+      <!-- 신규: 360° 오버레이 창 (왼/오/상) -->
+      <div class="group" style="margin-top:10px">
+        <div class="row"><strong>360° 오버레이 창</strong><span class="small"> (이퀴렉 2:1 이미지/동영상)</span></div>
+
+        <!-- 공통 설명 -->
+        <div class="row small">창을 켜고, 파일 업로드 또는 URL 불러오기 → 타이틀 확인 → 각도/높이/폭/엣지/불투명도 & Auto Fade 조정</div>
+
+        <!-- LEFT -->
+        <div class="group" style="margin-top:8px">
+          <div class="row"><label><input id="ovL_enable" type="checkbox"> 왼쪽 창 활성화</label><span id="ovL_title" class="title">—</span></div>
+          <div class="row"><label>이미지 업로드</label><input id="ovL_img" type="file" accept="image/*"></div>
+          <div class="row"><label>동영상 업로드</label><input id="ovL_vid" type="file" accept="video/*"><button id="ovL_play" class="small">재생/일시정지</button></div>
+          <div class="row"><label>URL 불러오기</label><input id="ovL_url" type="text" placeholder="https://example.com/360.mp4"><button id="ovL_load">불러오기</button></div>
+          <div class="row"><label>옵션</label><label><input id="ovL_muted" type="checkbox" checked> Muted</label><label><input id="ovL_loop" type="checkbox" checked> Loop</label><label><input id="ovL_pauseHidden" type="checkbox" checked> 숨김 시 일시정지</label></div>
+          <div class="row"><label for="ovL_angC">각도 중심(u)</label><input id="ovL_angC" type="range" min="0" max="1" step="0.001" value="0.25"/><span id="ovL_angCVal" class="small">0.25</span></div>
+          <div class="row"><label for="ovL_angW">각도 폭</label><input id="ovL_angW" type="range" min="0.01" max="0.5" step="0.001" value="0.18"/><span id="ovL_angWVal" class="small">0.18</span></div>
+          <div class="row"><label for="ovL_vC">높이 중심(v)</label><input id="ovL_vC" type="range" min="0" max="1" step="0.001" value="0.5"/><span id="ovL_vCVal" class="small">0.50</span></div>
+          <div class="row"><label for="ovL_vH">높이 반폭</label><input id="ovL_vH" type="range" min="0.01" max="0.5" step="0.001" value="0.22"/><span id="ovL_vHVal" class="small">0.22</span></div>
+          <div class="row"><label for="ovL_edge">엣지 소프트</label><input id="ovL_edge" type="range" min="0" max="0.3" step="0.001" value="0.03"/><span id="ovL_edgeVal" class="small">0.03</span></div>
+          <div class="row"><label for="ovL_opacity">최대 불투명도</label><input id="ovL_opacity" type="range" min="0" max="1" step="0.01" value="0.95"/><span id="ovL_opacityVal" class="small">0.95</span></div>
+          <div class="row"><label><input id="ovL_autoFade" type="checkbox" checked> Auto Fade</label><span class="small">fadeIn / holdOn / fadeOut / holdOff</span></div>
+          <div class="row"><label for="ovL_fadeIn">fadeIn (s)</label><input id="ovL_fadeIn" type="range" min="0.1" max="5" step="0.1" value="1.0"/><span id="ovL_fadeInVal" class="small">1.0s</span></div>
+          <div class="row"><label for="ovL_holdOn">holdOn (s)</label><input id="ovL_holdOn" type="range" min="0" max="10" step="0.1" value="2.0"/><span id="ovL_holdOnVal" class="small">2.0s</span></div>
+          <div class="row"><label for="ovL_fadeOut">fadeOut (s)</label><input id="ovL_fadeOut" type="range" min="0.1" max="5" step="0.1" value="1.2"/><span id="ovL_fadeOutVal" class="small">1.2s</span></div>
+          <div class="row"><label for="ovL_holdOff">holdOff (s)</label><input id="ovL_holdOff" type="range" min="0" max="10" step="0.1" value="1.5"/><span id="ovL_holdOffVal" class="small">1.5s</span></div>
+          <div class="row"><label>수동</label><button id="ovL_show" class="small">지금 나타내기</button><button id="ovL_hide" class="small">지금 숨기기</button></div>
+        </div>
+
+        <!-- RIGHT -->
+        <div class="group" style="margin-top:8px">
+          <div class="row"><label><input id="ovR_enable" type="checkbox"> 오른쪽 창 활성화</label><span id="ovR_title" class="title">—</span></div>
+          <div class="row"><label>이미지 업로드</label><input id="ovR_img" type="file" accept="image/*"></div>
+          <div class="row"><label>동영상 업로드</label><input id="ovR_vid" type="file" accept="video/*"><button id="ovR_play" class="small">재생/일시정지</button></div>
+          <div class="row"><label>URL 불러오기</label><input id="ovR_url" type="text" placeholder="https://example.com/360.jpg / .mp4"><button id="ovR_load">불러오기</button></div>
+          <div class="row"><label>옵션</label><label><input id="ovR_muted" type="checkbox" checked> Muted</label><label><input id="ovR_loop" type="checkbox" checked> Loop</label><label><input id="ovR_pauseHidden" type="checkbox" checked> 숨김 시 일시정지</label></div>
+          <div class="row"><label for="ovR_angC">각도 중심(u)</label><input id="ovR_angC" type="range" min="0" max="1" step="0.001" value="0.75"/><span id="ovR_angCVal" class="small">0.75</span></div>
+          <div class="row"><label for="ovR_angW">각도 폭</label><input id="ovR_angW" type="range" min="0.01" max="0.5" step="0.001" value="0.18"/><span id="ovR_angWVal" class="small">0.18</span></div>
+          <div class="row"><label for="ovR_vC">높이 중심(v)</label><input id="ovR_vC" type="range" min="0" max="1" step="0.001" value="0.5"/><span id="ovR_vCVal" class="small">0.50</span></div>
+          <div class="row"><label for="ovR_vH">높이 반폭</label><input id="ovR_vH" type="range" min="0.01" max="0.5" step="0.001" value="0.22"/><span id="ovR_vHVal" class="small">0.22</span></div>
+          <div class="row"><label for="ovR_edge">엣지 소프트</label><input id="ovR_edge" type="range" min="0" max="0.3" step="0.001" value="0.03"/><span id="ovR_edgeVal" class="small">0.03</span></div>
+          <div class="row"><label for="ovR_opacity">최대 불투명도</label><input id="ovR_opacity" type="range" min="0" max="1" step="0.01" value="0.95"/><span id="ovR_opacityVal" class="small">0.95</span></div>
+          <div class="row"><label><input id="ovR_autoFade" type="checkbox" checked> Auto Fade</label><span class="small">fadeIn / holdOn / fadeOut / holdOff</span></div>
+          <div class="row"><label for="ovR_fadeIn">fadeIn (s)</label><input id="ovR_fadeIn" type="range" min="0.1" max="5" step="0.1" value="1.0"/><span id="ovR_fadeInVal" class="small">1.0s</span></div>
+          <div class="row"><label for="ovR_holdOn">holdOn (s)</label><input id="ovR_holdOn" type="range" min="0" max="10" step="0.1" value="2.0"/><span id="ovR_holdOnVal" class="small">2.0s</span></div>
+          <div class="row"><label for="ovR_fadeOut">fadeOut (s)</label><input id="ovR_fadeOut" type="range" min="0.1" max="5" step="0.1" value="1.2"/><span id="ovR_fadeOutVal" class="small">1.2s</span></div>
+          <div class="row"><label for="ovR_holdOff">holdOff (s)</label><input id="ovR_holdOff" type="range" min="0" max="10" step="0.1" value="1.5"/><span id="ovR_holdOffVal" class="small">1.5s</span></div>
+          <div class="row"><label>수동</label><button id="ovR_show" class="small">지금 나타내기</button><button id="ovR_hide" class="small">지금 숨기기</button></div>
+        </div>
+
+        <!-- TOP -->
+        <div class="group" style="margin-top:8px">
+          <div class="row"><label><input id="ovT_enable" type="checkbox"> 상부 창 활성화</label><span id="ovT_title" class="title">—</span></div>
+          <div class="row"><label>이미지 업로드</label><input id="ovT_img" type="file" accept="image/*"></div>
+          <div class="row"><label>동영상 업로드</label><input id="ovT_vid" type="file" accept="video/*"><button id="ovT_play" class="small">재생/일시정지</button></div>
+          <div class="row"><label>URL 불러오기</label><input id="ovT_url" type="text" placeholder="https://example.com/360.webm"><button id="ovT_load">불러오기</button></div>
+          <div class="row"><label>옵션</label><label><input id="ovT_muted" type="checkbox" checked> Muted</label><label><input id="ovT_loop" type="checkbox" checked> Loop</label><label><input id="ovT_pauseHidden" type="checkbox" checked> 숨김 시 일시정지</label></div>
+          <div class="row"><label for="ovT_angC">각도 중심(u)</label><input id="ovT_angC" type="range" min="0" max="1" step="0.001" value="0.50"/><span id="ovT_angCVal" class="small">0.50</span></div>
+          <div class="row"><label for="ovT_angW">각도 폭</label><input id="ovT_angW" type="range" min="0.01" max="0.5" step="0.001" value="0.28"/><span id="ovT_angWVal" class="small">0.28</span></div>
+          <div class="row"><label for="ovT_vC">높이 중심(v)</label><input id="ovT_vC" type="range" min="0" max="1" step="0.001" value="0.82"/><span id="ovT_vCVal" class="small">0.82</span></div>
+          <div class="row"><label for="ovT_vH">높이 반폭</label><input id="ovT_vH" type="range" min="0.01" max="0.5" step="0.001" value="0.12"/><span id="ovT_vHVal" class="small">0.12</span></div>
+          <div class="row"><label for="ovT_edge">엣지 소프트</label><input id="ovT_edge" type="range" min="0" max="0.3" step="0.001" value="0.03"/><span id="ovT_edgeVal" class="small">0.03</span></div>
+          <div class="row"><label for="ovT_opacity">최대 불투명도</label><input id="ovT_opacity" type="range" min="0" max="1" step="0.01" value="0.95"/><span id="ovT_opacityVal" class="small">0.95</span></div>
+          <div class="row"><label><input id="ovT_autoFade" type="checkbox" checked> Auto Fade</label><span class="small">fadeIn / holdOn / fadeOut / holdOff</span></div>
+          <div class="row"><label for="ovT_fadeIn">fadeIn (s)</label><input id="ovT_fadeIn" type="range" min="0.1" max="5" step="0.1" value="1.0"/><span id="ovT_fadeInVal" class="small">1.0s</span></div>
+          <div class="row"><label for="ovT_holdOn">holdOn (s)</label><input id="ovT_holdOn" type="range" min="0" max="10" step="0.1" value="2.0"/><span id="ovT_holdOnVal" class="small">2.0s</span></div>
+          <div class="row"><label for="ovT_fadeOut">fadeOut (s)</label><input id="ovT_fadeOut" type="range" min="0.1" max="5" step="0.1" value="1.2"/><span id="ovT_fadeOutVal" class="small">1.2s</span></div>
+          <div class="row"><label for="ovT_holdOff">holdOff (s)</label><input id="ovT_holdOff" type="range" min="0" max="10" step="0.1" value="1.5"/><span id="ovT_holdOffVal" class="small">1.5s</span></div>
+          <div class="row"><label>수동</label><button id="ovT_show" class="small">지금 나타내기</button><button id="ovT_hide" class="small">지금 숨기기</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 레티클 포스트프로세스 -->
+  <div class="group">
+    <div class="row"><label for="enable">효과 켜기</label><input id="enable" type="checkbox" checked /></div>
+    <div class="row"><label for="radius">레티클 반경</label><input id="radius" type="range" min="0.03" max="0.30" step="0.001" value="0.10"/><span id="radiusVal" class="small">0.10</span></div>
+    <div class="row"><label for="edge">페더 폭</label><input id="edge" type="range" min="0.002" max="0.12" step="0.001" value="0.03"/><span id="edgeVal" class="small">0.03</span></div>
+    <div class="row"><label for="ring">링 두께</label><input id="ring" type="range" min="0.002" max="0.07" step="0.001" value="0.008"/><span id="ringVal" class="small">0.008</span></div>
+    <div class="row"><label for="ringOpacity">링 불투명도</label><input id="ringOpacity" type="range" min="0" max="1" step="0.01" value="0.8"/><span id="ringOpacityVal" class="small">0.80</span></div>
+    <div class="row"><label for="ringColor">링 색상</label><input id="ringColor" type="color" value="#00e2ff"/></div>
+    <div class="row"><label for="shakeAmp">흔들림 세기(px)</label><input id="shakeAmp" type="range" min="0" max="12" step="0.1" value="6"/><span id="shakeAmpVal" class="small">6.0 px</span></div>
+    <div class="row"><label for="shakeFreq">흔들림 주파수(Hz)</label><input id="shakeFreq" type="range" min="0" max="8" step="0.1" value="2.0"/><span id="shakeFreqVal" class="small">2.0 Hz</span></div>
+    <div class="row"><label for="blurSigma">블러 강도(px)</label><input id="blurSigma" type="range" min="0" max="4" step="0.1" value="1.0"/><span id="blurSigmaVal" class="small">1.0 px</span></div>
+  </div>
+
+  <div class="small">• URL은 CORS 허용 필요. • 360 오버레이는 이퀴렉(2:1) 권장. • VR 버튼으로 WebXR 진입.</div>
+</div>
+<div class="row" id="quickPanel">
+  <label>Quick Test</label>
+  <div>
+    <div style="margin-bottom:6px">
+      <b>2D Video</b>
+      <input type="file" id="quick2d" accept="video/*">
+      <button id="q2Play">Play</button>
+      <button id="q2Pause">Pause</button>
+    </div>
+    <div>
+      <b>360° Video</b>
+      <input type="file" id="quick360" accept="video/*">
+      <button id="q360Play">Play</button>
+      <button id="q360Pause">Pause</button>
+    </div>
+  </div>
+</div>
+
+<canvas id="c"></canvas>
+
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js';
+import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/controls/OrbitControls.js';
+import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/webxr/VRButton.js';
+import { EffectComposer } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/postprocessing/RenderPass.js';
+import { ShaderPass } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/postprocessing/ShaderPass.js';
+
+
+let canvas = document.getElementById('c');
+if (!canvas) {
+  canvas = document.createElement('canvas');
+  canvas.id = 'c';
+  canvas.style.position = 'absolute';
+  canvas.style.left = '0';
+  canvas.style.top = '0';
+  document.body.appendChild(canvas);
+}
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.xr.enabled = true;
+(function(){
+  try {
+    const vrBtn = VRButton.createButton(renderer);
+    vrBtn.style.position = 'static';
+    vrBtn.style.margin = '0';
+    vrBtn.style.cursor = 'pointer';
+    const slot = document.getElementById('vrSlot');
+    (function mountVR(){
+  const s = document.getElementById('vrSlot') || document.body;
+  if (s) { try { s.appendChild(vrBtn); } catch(e){} }
+  else { setTimeout(mountVR, 50); }
+})();
+window.addEventListener('DOMContentLoaded', ()=>{ try { const t = document.getElementById('vrSlot'); if (t && !t.contains(vrBtn)) t.appendChild(vrBtn); } catch(e){} });
+  } catch(e) { console.warn('VRButton mount fallback', e); }
+})();
+
+// Scene & Camera
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x101014);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 300);
+camera.position.set(0, 1.6, 3);
+
+// Desktop orbit preview
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+// Lights
+scene.add(new THREE.HemisphereLight(0xffffff, 0x222233, 1.0));
+const dl = new THREE.DirectionalLight(0xffffff, 0.7); dl.position.set(3,5,2); scene.add(dl);
+
+/* ---------- 콘텐츠 그룹 ---------- */
+// 1) 3D 씬
+const group3D = new THREE.Group(); scene.add(group3D);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(40,40), new THREE.MeshStandardMaterial({color:0x18181c,metalness:0,roughness:1}));
+floor.rotation.x = -Math.PI/2; group3D.add(floor);
+const boxGeo = new THREE.BoxGeometry(0.5,0.5,0.5);
+for(let x=-4;x<=4;x++){ for(let z=-4;z<=4;z++){
+  const mat = new THREE.MeshStandardMaterial({color:new THREE.Color().setHSL(((x+4)*9+(z+4)*13)%360/360,0.65,0.5),metalness:0.2,roughness:0.5});
+  const m = new THREE.Mesh(boxGeo,mat); m.position.set(x*0.9, 1+Math.random()*0.6, z*0.9); group3D.add(m);
+}} 
+
+// 2) 2D 평면
+const group2D = new THREE.Group(); group2D.visible=false; scene.add(group2D);
+const planeGeom = new THREE.PlaneGeometry(4,2.25);
+const imgPlane = new THREE.Mesh(planeGeom, new THREE.MeshBasicMaterial({color:0x000000}));
+imgPlane.position.set(0,1.6,-3); group2D.add(imgPlane);
+const video2D = document.createElement('video'); video2D.playsInline=true; video2D.muted=true; video2D.loop=true; video2D.crossOrigin='anonymous';
+const videoTex2D = new THREE.VideoTexture(video2D); videoTex2D.colorSpace=THREE.SRGBColorSpace;
+const vidPlane = new THREE.Mesh(planeGeom, new THREE.MeshBasicMaterial({map:videoTex2D,toneMapped:false}));
+vidPlane.position.set(0,1.6,-3); vidPlane.visible=false; group2D.add(vidPlane);
+
+// 3) 360 돔(이퀴렉)
+const group360 = new THREE.Group(); group360.visible=false; scene.add(group360);
+const video360 = document.createElement('video'); video360.playsInline=true; video360.muted=true; video360.loop=true; video360.crossOrigin='anonymous';
+const videoTex360 = new THREE.VideoTexture(video360); videoTex360.colorSpace=THREE.SRGBColorSpace;
+const sphereMat = new THREE.MeshBasicMaterial({color:0x000000,side:THREE.BackSide,toneMapped:false});
+const sphere = new THREE.Mesh(new THREE.SphereGeometry(50,64,32), sphereMat); group360.add(sphere);
+
+// 4) 360 터널(절차적)
+const groupTunnel = new THREE.Group(); groupTunnel.visible=false; scene.add(groupTunnel);
+
+// 터널 셰이더
+const TunnelShader = {
+  uniforms:{ time:{value:0}, speed:{value:1.2}, repeatY:{value:24.0}, spokes:{value:6.0}, darkness:{value:0.75}, tint:{value:new THREE.Color('#0a0f2a')} },
+  vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:/*glsl*/`
+    precision highp float; varying vec2 vUv;
+    uniform float time, speed, repeatY, spokes, darkness; uniform vec3 tint;
+    void main(){
+      float u=vUv.x, v=vUv.y;
+      float vv = fract(v*repeatY - time*speed);
+      float ring = smoothstep(0.0,0.02,vv) + smoothstep(1.0,0.98,vv);
+      float ang = cos((u*6.28318*spokes));
+      float spokesMask = smoothstep(0.85,1.0,abs(ang));
+      float light = clamp(ring*0.9 + spokesMask*0.25, 0.0, 1.0);
+      vec3 base = mix(vec3(0.0), tint, 0.25);
+      vec3 col = base + light * vec3(0.9,0.95,1.0);
+      float edgeVignette = smoothstep(0.0, 0.35, abs(ang));
+      col *= mix(1.0-darkness, 1.0, edgeVignette);
+      gl_FragColor = vec4(col, 1.0);
+    }`
+};
+const tunnelMat = new THREE.ShaderMaterial({ uniforms:TunnelShader.uniforms, vertexShader:TunnelShader.vertexShader, fragmentShader:TunnelShader.fragmentShader, side:THREE.BackSide, depthWrite:false });
+const tunnel = new THREE.Mesh(new THREE.CylinderGeometry(12,12,200,96,1,true), tunnelMat);
+tunnel.rotation.z = Math.PI; tunnel.renderOrder = 0;
+groupTunnel.add(tunnel);
+
+// 목표물
+const targetMat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.9 });
+const target = new THREE.Mesh(new THREE.SphereGeometry(0.08, 32, 16), targetMat);
+groupTunnel.add(target);
+
+/* ===== (기존) 미디어 터널: 2D 비디오 띠 ===== */
+const videoTun = document.createElement('video');
+videoTun.playsInline = true; videoTun.muted = true; videoTun.loop = true; videoTun.crossOrigin='anonymous';
+const videoTexTun = new THREE.VideoTexture(videoTun); videoTexTun.colorSpace=THREE.SRGBColorSpace;
+const mediaBandShader = {
+  uniforms:{ tVideo:{value:videoTexTun}, fade:{value:0.0}, bandCenter:{value:0.5}, bandHeight:{value:0.35}, bandEdge:{value:0.03}, maxOpacity:{value:0.95} },
+  vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:/*glsl*/`
+    precision highp float; varying vec2 vUv; uniform sampler2D tVideo;
+    uniform float fade, bandCenter, bandHeight, bandEdge, maxOpacity;
+    void main(){
+      vec2 uv=vUv; vec4 vid=texture2D(tVideo, vec2(uv.x, 1.0-uv.y));
+      float halfH=clamp(bandHeight*0.5,0.0,0.5);
+      float lo=bandCenter-halfH, hi=bandCenter+halfH;
+      float m1=smoothstep(lo-bandEdge, lo+bandEdge, uv.y);
+      float m2=1.0-smoothstep(hi-bandEdge, hi+bandEdge, uv.y);
+      float bandMask=clamp(m1*m2,0.0,1.0);
+      float a=bandMask*maxOpacity*fade*vid.a; if(a<=0.001) discard;
+      gl_FragColor=vec4(vid.rgb, a);
+    }`,
+  transparent:true, side:THREE.BackSide, depthWrite:false
+};
+const mediaMat = new THREE.ShaderMaterial(mediaBandShader);
+const mediaCyl = new THREE.Mesh(new THREE.CylinderGeometry(11.85,11.85,200,96,1,true), mediaMat);
+mediaCyl.rotation.z = Math.PI; mediaCyl.renderOrder = 1;
+groupTunnel.add(mediaCyl);
+let autoFadeOn = true, tCycleStart = performance.now()/1000;
+function cycleFade(t){
+  if(!autoFadeOn) return;
+  const fin=parseFloat(ui.fadeIn.value), hon=parseFloat(ui.holdOn.value), fout=parseFloat(ui.fadeOut.value), hof=parseFloat(ui.holdOff.value);
+  const total=fin+hon+fout+hof; if(total<=0.001) return;
+  const phase=((t-tCycleStart)%total);
+  let f=0.0;
+  if(phase<fin) f=phase/Math.max(fin,1e-6);
+  else if(phase<fin+hon) f=1.0;
+  else if(phase<fin+hon+fout) f=1.0 - (phase-(fin+hon))/Math.max(fout,1e-6);
+  else f=0.0;
+  mediaBandShader.uniforms.fade.value=f;
+  if(ui.pauseWhenHidden.checked){
+    if(f<=0.001 && !videoTun.paused) videoTun.pause();
+    if(f>0.01 && videoTun.paused) videoTun.play().catch(()=>{});
+  }
+}
+
+/* ===== 신규: 360° 오버레이 창(왼/오/상) ===== */
+// 공통 셰이더: 각도/높이 윈도우 + 페이드 + 이퀴렉 샘플
+const OverlayWindowShader = {
+  uniforms:()=>({
+    tMedia:{value:null}, // Texture (이미지 or VideoTexture)
+    fade:{value:0.0},
+    opacity:{value:0.95},
+    angC:{value:0.25},   // 중심각(0..1)
+    angW:{value:0.18},   // 각 폭
+    vC:{value:0.5},      // 높이 중심(0..1)
+    vH:{value:0.22},     // 높이 반폭(0..0.5)
+    edge:{value:0.03}
+  }),
+  vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:/*glsl*/`
+    precision highp float; varying vec2 vUv; uniform sampler2D tMedia;
+    uniform float fade, opacity, angC, angW, vC, vH, edge;
+    // 원형(0..1)에서 래핑 고려한 각도 거리
+    float angDist(float u, float center){
+      float d = abs(fract(u - center + 0.5) - 0.5);
+      return d; // 0..0.5
+    }
+    void main(){
+      float u = vUv.x, v = vUv.y;
+      // 이퀴렉 샘플(상하 반전 보정 필요시 1.0 - v)
+      vec4 col = texture2D(tMedia, vec2(u, 1.0 - v));
+      // 각도 마스크: 중심에서 angW 이내는 1, angW..angW+edge에서 부드럽게 0
+      float ad = angDist(u, angC);
+      float aAng = 1.0 - smoothstep(angW, angW+edge, ad);
+      // 높이 마스크
+      float dv = abs(v - vC);
+      float aH = 1.0 - smoothstep(vH, vH+edge, dv);
+      float m = clamp(aAng * aH, 0.0, 1.0);
+      float a = m * opacity * fade * col.a;
+      if(a <= 0.001) discard;
+      gl_FragColor = vec4(col.rgb, a);
+    }`,
+};
+
+// 오버레이 팩토리
+function makeOverlay(radius=11.75, renderOrder=2){
+  const video = document.createElement('video');
+  video.playsInline = true; video.muted = true; video.loop = true; video.crossOrigin='anonymous';
+  const videoTex = new THREE.VideoTexture(video); videoTex.colorSpace = THREE.SRGBColorSpace;
+
+  const mat = new THREE.ShaderMaterial({
+    uniforms: OverlayWindowShader.uniforms(),
+    vertexShader: OverlayWindowShader.vertexShader,
+    fragmentShader: OverlayWindowShader.fragmentShader,
+    transparent:true, side:THREE.BackSide, depthWrite:false
+  });
+  const cyl = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 200, 128, 1, true), mat);
+  cyl.rotation.z = Math.PI; cyl.renderOrder = renderOrder;
+  groupTunnel.add(cyl);
+
+  return { video, videoTex, mat, cyl, autoFade:true, cycleStart: performance.now()/1000, currentTex:null, isVideo:false, pauseWhenHidden:true, titleEl:null };
+}
+const overlayL = makeOverlay(11.75, 2);
+const overlayR = makeOverlay(11.73, 3);
+const overlayT = makeOverlay(11.71, 4);
+
+// 공통 유틸
+const $ = (id)=>document.getElementById(id);
+function hexToRgb(hex){ const m=/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex); return m ? [parseInt(m[1],16)/255, parseInt(m[2],16)/255, parseInt(m[3],16)/255] : [0,1,1]; }
+function fileTitleFromURL(url){ try{ const u=new URL(url); const p=u.pathname.split('/').filter(Boolean); return p.length?decodeURIComponent(p[p.length-1]):url; }catch{ const parts=url.split('/'); return parts[parts.length-1]||url; } }
+function loadTextureURL(url, onReady){ new THREE.TextureLoader().load(url,(tex)=>{ tex.colorSpace=THREE.SRGBColorSpace; onReady(tex); },undefined,()=>console.warn('이미지 로드 실패(CORS/경로)')); }
+function setOverlayTextureFromImage(ov, tex, title){
+  if(ov.currentTex && ov.currentTex.isTexture && ov.currentTex !== tex) ov.currentTex.dispose?.();
+  ov.currentTex = tex; ov.isVideo = false;
+  ov.mat.uniforms.tMedia.value = tex;
+  if(title && ov.titleEl) ov.titleEl.textContent = title;
+  // 이미지 사용 시 비디오는 멈춤
+  ov.video.pause();
+}
+function setOverlayTextureFromVideo(ov, title){
+  ov.currentTex = ov.videoTex; ov.isVideo = true;
+  ov.mat.uniforms.tMedia.value = ov.videoTex;
+  if(title && ov.titleEl) ov.titleEl.textContent = title;
+  ov.video.play().catch(()=>{});
+}
+function overlayCycle(ov, t){
+  if(!ov.autoFade) return;
+  const uiSet = ov.ui;
+  const fin=parseFloat(uiSet.fadeIn.value), hon=parseFloat(uiSet.holdOn.value), fout=parseFloat(uiSet.fadeOut.value), hof=parseFloat(uiSet.holdOff.value);
+  const total=fin+hon+fout+hof; if(total<=0.001) return;
+  const phase=((t-ov.cycleStart)%total);
+  let f=0.0;
+  if(phase<fin) f=phase/Math.max(fin,1e-6);
+  else if(phase<fin+hon) f=1.0;
+  else if(phase<fin+hon+fout) f=1.0 - (phase-(fin+hon))/Math.max(fout,1e-6);
+  else f=0.0;
+  ov.mat.uniforms.fade.value = f;
+
+  if(ov.pauseWhenHidden && ov.isVideo){
+    if(f<=0.001 && !ov.video.paused) ov.video.pause();
+    if(f>0.01 && ov.video.paused) ov.video.play().catch(()=>{});
+  }
+}
+
+/* ---------- 포스트프로세스(레티클 FX) ---------- */
+const ReticleShakeShader = {
+  uniforms:{ 'tDiffuse':{value:null}, 'time':{value:0}, 'center':{value:new THREE.Vector2(.5,.5)},
+    'radius':{value:.10}, 'edge':{value:.03}, 'ringThickness':{value:.008}, 'ringColor':{value:new THREE.Color('#00e2ff')},
+    'ringOpacity':{value:.8}, 'shakeAmpPx':{value:6.0}, 'shakeFreq':{value:2.0}, 'blurSigmaPx':{value:1.0},
+    'resolution':{value:new THREE.Vector2(window.innerWidth*renderer.getPixelRatio(), window.innerHeight*renderer.getPixelRatio())},
+    'enableEffect':{value:true}},
+  vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position,1.0); }`,
+  fragmentShader:/*glsl*/`
+    precision highp float; varying vec2 vUv; uniform sampler2D tDiffuse; uniform float time;
+    uniform vec2 center; uniform float radius, edge, ringThickness, ringOpacity, shakeAmpPx, shakeFreq, blurSigmaPx; 
+    uniform vec3 ringColor; uniform vec2 resolution; uniform bool enableEffect;
+    vec4 boxBlur9(sampler2D tex, vec2 uv, vec2 px){ vec4 a=vec4(0.0);
+      for(int j=-1;j<=1;j++) for(int i=-1;i<=1;i++) a+=texture2D(tex, uv+px*vec2(float(i),float(j)));
+      return a/9.0; }
+    void main(){
+      vec2 uv=vUv; float d=distance(uv,center); float f=smoothstep(radius, radius+edge, d);
+      vec4 base=texture2D(tDiffuse, uv); vec4 outc=base;
+      if(enableEffect){
+        float w=shakeAmpPx/max(1.0,min(resolution.x,resolution.y));
+        vec2 wob=vec2( sin(6.28318*shakeFreq*time+uv.y*40.0), cos(6.28318*(shakeFreq*1.17)*time+uv.x*38.0) )*w;
+        vec2 dir=normalize(uv-center+1e-6);
+        vec2 uvS=clamp(uv + wob + dir*(0.5*w*sin(6.28318*shakeFreq*0.5*time + d*20.0)), 0.0, 1.0);
+        vec4 sh=texture2D(tDiffuse, uvS);
+        if(blurSigmaPx>0.0){ vec2 stepPx=blurSigmaPx/resolution; sh=mix(sh, boxBlur9(tDiffuse, uvS, stepPx), 0.65); }
+        outc=mix(base, sh, f);
+      }
+      float r1=radius, r2=radius+ringThickness;
+      float inner=smoothstep(r1-edge*0.5, r1+edge*0.5, d);
+      float outer=1.0 - smoothstep(r2-edge*0.5, r2+edge*0.5, d);
+      float ring=clamp(inner*outer,0.0,1.0);
+      vec3 col=mix(outc.rgb, ringColor, ring*ringOpacity);
+      gl_FragColor=vec4(col,1.0);
+    }`
+};
+const composer = new EffectComposer(renderer);
+const renderPass = new RenderPass(scene, camera); composer.addPass(renderPass);
+const reticlePass = new ShaderPass(ReticleShakeShader); composer.addPass(reticlePass);
+
+/* ---------- UI 핸들 ---------- */
+const ui={
+  // panels
+  panel2D: $('panel2D'), panel360: $('panel360'), panelTunnel: $('panelTunnel'),
+  // 2D
+  img2d:$('img2d'), img2dUrl:$('img2dUrl'), loadImg2d:$('loadImg2d'),
+  vid2d:$('vid2d'), vid2dUrl:$('vid2dUrl'), loadVid2d:$('loadVid2d'), play2d:$('play2d'),
+  // 360
+  img360:$('img360'), img360Url:$('img360Url'), loadImg360:$('loadImg360'),
+  vid360:$('vid360'), vid360Url:$('vid360Url'), loadVid360:$('loadVid360'), play360:$('play360'),
+  // reticle fx
+  enable:$('enable'), radius:$('radius'), edge:$('edge'), ring:$('ring'), ringOpacity:$('ringOpacity'),
+  ringColor:$('ringColor'), shakeAmp:$('shakeAmp'), shakeFreq:$('shakeFreq'), blurSigma:$('blurSigma'),
+  radiusVal:$('radiusVal'), edgeVal:$('edgeVal'), ringVal:$('ringVal'), ringOpacityVal:$('ringOpacityVal'),
+  shakeAmpVal:$('shakeAmpVal'), shakeFreqVal:$('shakeFreqVal'), blurSigmaVal:$('blurSigmaVal'),
+  // tunnel base
+  tunSpeed:$('tunSpeed'), tunSpeedVal:$('tunSpeedVal'),
+  tunRepeat:$('tunRepeat'), tunRepeatVal:$('tunRepeatVal'),
+  tunSpokes:$('tunSpokes'), tunSpokesVal:$('tunSpokesVal'),
+  tunDark:$('tunDark'), tunDarkVal:$('tunDarkVal'),
+  tunTint:$('tunTint'),
+  // target
+  tgtDist:$('tgtDist'), tgtDistVal:$('tgtDistVal'),
+  tgtSize:$('tgtSize'), tgtSizeVal:$('tgtSizeVal'),
+  tgtPulse:$('tgtPulse'), tgtPulseVal:$('tgtPulseVal'),
+  tgtDrift:$('tgtDrift'), tgtDriftVal:$('tgtDriftVal'),
+  // media band UI
+  tunVidFile:$('tunVidFile'), tunVidUrl:$('tunVidUrl'), tunVidLoadUrl:$('tunVidLoadUrl'), tunVidPlay:$('tunVidPlay'),
+  tunVidMuted:$('tunVidMuted'), tunVidLoop:$('tunVidLoop'), pauseWhenHidden:$('pauseWhenHidden'),
+  bandCenter:$('bandCenter'), bandCenterVal:$('bandCenterVal'),
+  bandHeight:$('bandHeight'), bandHeightVal:$('bandHeightVal'),
+  bandEdge:$('bandEdge'), bandEdgeVal:$('bandEdgeVal'),
+  bandOpacity:$('bandOpacity'), bandOpacityVal:$('bandOpacityVal'),
+  autoFade:$('autoFade'), fadeIn:$('fadeIn'), fadeInVal:$('fadeInVal'),
+  holdOn:$('holdOn'), holdOnVal:$('holdOnVal'),
+  fadeOut:$('fadeOut'), fadeOutVal:$('fadeOutVal'),
+  holdOff:$('holdOff'), holdOffVal:$('holdOffVal'),
+  showNow:$('showNow'), hideNow:$('hideNow'),
+
+  // overlays LEFT
+  ovL:{ enable:$('ovL_enable'), img:$('ovL_img'), vid:$('ovL_vid'), play:$('ovL_play'),
+        url:$('ovL_url'), load:$('ovL_load'), title:$('ovL_title'),
+        muted:$('ovL_muted'), loop:$('ovL_loop'), pauseHidden:$('ovL_pauseHidden'),
+        angC:$('ovL_angC'), angCVal:$('ovL_angCVal'),
+        angW:$('ovL_angW'), angWVal:$('ovL_angWVal'),
+        vC:$('ovL_vC'), vCVal:$('ovL_vCVal'),
+        vH:$('ovL_vH'), vHVal:$('ovL_vHVal'),
+        edge:$('ovL_edge'), edgeVal:$('ovL_edgeVal'),
+        opacity:$('ovL_opacity'), opacityVal:$('ovL_opacityVal'),
+        autoFade:$('ovL_autoFade'), fadeIn:$('ovL_fadeIn'), fadeInVal:$('ovL_fadeInVal'),
+        holdOn:$('ovL_holdOn'), holdOnVal:$('ovL_holdOnVal'),
+        fadeOut:$('ovL_fadeOut'), fadeOutVal:$('ovL_fadeOutVal'),
+        holdOff:$('ovL_holdOff'), holdOffVal:$('ovL_holdOffVal'),
+        show:$('ovL_show'), hide:$('ovL_hide') },
+
+  // overlays RIGHT
+  ovR:{ enable:$('ovR_enable'), img:$('ovR_img'), vid:$('ovR_vid'), play:$('ovR_play'),
+        url:$('ovR_url'), load:$('ovR_load'), title:$('ovR_title'),
+        muted:$('ovR_muted'), loop:$('ovR_loop'), pauseHidden:$('ovR_pauseHidden'),
+        angC:$('ovR_angC'), angCVal:$('ovR_angCVal'),
+        angW:$('ovR_angW'), angWVal:$('ovR_angWVal'),
+        vC:$('ovR_vC'), vCVal:$('ovR_vCVal'),
+        vH:$('ovR_vH'), vHVal:$('ovR_vHVal'),
+        edge:$('ovR_edge'), edgeVal:$('ovR_edgeVal'),
+        opacity:$('ovR_opacity'), opacityVal:$('ovR_opacityVal'),
+        autoFade:$('ovR_autoFade'), fadeIn:$('ovR_fadeIn'), fadeInVal:$('ovR_fadeInVal'),
+        holdOn:$('ovR_holdOn'), holdOnVal:$('ovR_holdOnVal'),
+        fadeOut:$('ovR_fadeOut'), fadeOutVal:$('ovR_fadeOutVal'),
+        holdOff:$('ovR_holdOff'), holdOffVal:$('ovR_holdOffVal'),
+        show:$('ovR_show'), hide:$('ovR_hide') },
+
+  // overlays TOP
+  ovT:{ enable:$('ovT_enable'), img:$('ovT_img'), vid:$('ovT_vid'), play:$('ovT_play'),
+        url:$('ovT_url'), load:$('ovT_load'), title:$('ovT_title'),
+        muted:$('ovT_muted'), loop:$('ovT_loop'), pauseHidden:$('ovT_pauseHidden'),
+        angC:$('ovT_angC'), angCVal:$('ovT_angCVal'),
+        angW:$('ovT_angW'), angWVal:$('ovT_angWVal'),
+        vC:$('ovT_vC'), vCVal:$('ovT_vCVal'),
+        vH:$('ovT_vH'), vHVal:$('ovT_vHVal'),
+        edge:$('ovT_edge'), edgeVal:$('ovT_edgeVal'),
+        opacity:$('ovT_opacity'), opacityVal:$('ovT_opacityVal'),
+        autoFade:$('ovT_autoFade'), fadeIn:$('ovT_fadeIn'), fadeInVal:$('ovT_fadeInVal'),
+        holdOn:$('ovT_holdOn'), holdOnVal:$('ovT_holdOnVal'),
+        fadeOut:$('ovT_fadeOut'), fadeOutVal:$('ovT_fadeOutVal'),
+        holdOff:$('ovT_holdOff'), holdOffVal:$('ovT_holdOffVal'),
+        show:$('ovT_show'), hide:$('ovT_hide') },
+};
+
+// Reticle FX sync
+function syncFX(){
+  const u=reticlePass.uniforms;
+  ui.radiusVal.textContent=Number(ui.radius.value).toFixed(3);
+  ui.edgeVal.textContent=Number(ui.edge.value).toFixed(3);
+  ui.ringVal.textContent=Number(ui.ring.value).toFixed(3);
+  ui.ringOpacityVal.textContent=Number(ui.ringOpacity.value).toFixed(2);
+  ui.shakeAmpVal.textContent=`${Number(ui.shakeAmp.value).toFixed(1)} px`;
+  ui.shakeFreqVal.textContent=`${Number(ui.shakeFreq.value).toFixed(1)} Hz`;
+  ui.blurSigmaVal.textContent=`${Number(ui.blurSigma.value).toFixed(1)} px`;
+  u.enableEffect.value=ui.enable.checked;
+  u.radius.value=parseFloat(ui.radius.value);
+  u.edge.value=parseFloat(ui.edge.value);
+  u.ringThickness.value=parseFloat(ui.ring.value);
+  u.ringOpacity.value=parseFloat(ui.ringOpacity.value);
+  const [r,g,b]=hexToRgb(ui.ringColor.value); u.ringColor.value.setRGB(r,g,b);
+  u.shakeAmpPx.value=parseFloat(ui.shakeAmp.value);
+  u.shakeFreq.value=parseFloat(ui.shakeFreq.value);
+  u.blurSigmaPx.value=parseFloat(ui.blurSigma.value);
+}
+['input','change'].forEach(evt=>{
+  [ui.enable,ui.radius,ui.edge,ui.ring,ui.ringOpacity,ui.ringColor,ui.shakeAmp,ui.shakeFreq,ui.blurSigma]
+    .forEach(el=>el.addEventListener(evt, syncFX));
+});
+syncFX();
+
+// Tunnel base sync
+function syncTunnel(){
+  TunnelShader.uniforms.speed.value = parseFloat(ui.tunSpeed.value);
+  ui.tunSpeedVal.textContent = Number(ui.tunSpeed.value).toFixed(2);
+  TunnelShader.uniforms.repeatY.value = parseFloat(ui.tunRepeat.value);
+  ui.tunRepeatVal.textContent = ui.tunRepeat.value;
+  TunnelShader.uniforms.spokes.value = parseFloat(ui.tunSpokes.value);
+  ui.tunSpokesVal.textContent = ui.tunSpokes.value;
+  TunnelShader.uniforms.darkness.value = parseFloat(ui.tunDark.value);
+  ui.tunDarkVal.textContent = Number(ui.tunDark.value).toFixed(2);
+  const [r,g,b]=hexToRgb(ui.tunTint.value); TunnelShader.uniforms.tint.value.setRGB(r,g,b);
+}
+['input','change'].forEach(evt=>{
+  [ui.tunSpeed,ui.tunRepeat,ui.tunSpokes,ui.tunDark,ui.tunTint]
+    .forEach(el=>el.addEventListener(evt, syncTunnel));
+});
+syncTunnel();
+
+// Target sync
+function syncTarget(){
+  target.scale.setScalar(parseFloat(ui.tgtSize.value));
+  ui.tgtSizeVal.textContent = Number(ui.tgtSize.value).toFixed(2);
+  ui.tgtDistVal.textContent = `${Number(ui.tgtDist.value).toFixed(1)} m`;
+  ui.tgtPulseVal.textContent = `${Number(ui.tgtPulse.value).toFixed(2)} Hz`;
+  ui.tgtDriftVal.textContent = Number(ui.tgtDrift.value).toFixed(2);
+}
+['input','change'].forEach(evt=>{
+  [ui.tgtDist,ui.tgtSize,ui.tgtPulse,ui.tgtDrift].forEach(el=>el.addEventListener(evt, syncTarget));
+});
+syncTarget();
+
+// Media band sync
+function syncMediaBand(){
+  mediaBandShader.uniforms.bandCenter.value = parseFloat(ui.bandCenter.value);
+  mediaBandShader.uniforms.bandHeight.value = parseFloat(ui.bandHeight.value);
+  mediaBandShader.uniforms.bandEdge.value = parseFloat(ui.bandEdge.value);
+  mediaBandShader.uniforms.maxOpacity.value = parseFloat(ui.bandOpacity.value);
+  ui.bandCenterVal.textContent = Number(ui.bandCenter.value).toFixed(2);
+  ui.bandHeightVal.textContent = Number(ui.bandHeight.value).toFixed(2);
+  ui.bandEdgeVal.textContent = Number(ui.bandEdge.value).toFixed(2);
+  ui.bandOpacityVal.textContent = Number(ui.bandOpacity.value).toFixed(2);
+}
+['input','change'].forEach(evt=>{
+  [ui.bandCenter,ui.bandHeight,ui.bandEdge,ui.bandOpacity].forEach(el=>el.addEventListener(evt, syncMediaBand));
+});
+syncMediaBand();
+
+/* 모드 전환 */
+let currentMode='tunnel';
+function setMode(mode){
+  currentMode=mode;
+  group3D.visible=(mode==='3d');
+  group2D.visible=(mode==='2d');
+  group360.visible=(mode==='360');
+  groupTunnel.visible=(mode==='tunnel');
+  ui.panel2D.classList.toggle('hidden', mode!=='2d');
+  ui.panel360.classList.toggle('hidden', mode!=='360');
+  ui.panelTunnel.classList.toggle('hidden', mode!=='tunnel');
+}
+document.querySelectorAll('input[name="mode"]').forEach(r=>r.addEventListener('change',e=>setMode(e.target.value)));
+
+/* 2D 로딩 */
+let tex2DImage=null;
+function fitPlaneToMedia(mesh,w,h,targetW=4){ if(!w||!h)return; const ar=h/w; mesh.scale.set(1, ar*targetW/4, 1); }
+ui.img2d.addEventListener('change',e=>{ const f=e.target.files?.[0]; if(!f)return; const url=URL.createObjectURL(f);
+  loadTextureURL(url,(tex)=>{ if(tex2DImage) tex2DImage.dispose(); tex2DImage=tex; imgPlane.material.map=tex; imgPlane.material.needsUpdate=true; imgPlane.visible=true; vidPlane.visible=false;
+    const {width,height}=tex.image; fitPlaneToMedia(imgPlane,width,height,4); URL.revokeObjectURL(url); });
+});
+ui.loadImg2d.addEventListener('click',()=>{ const url=ui.img2dUrl.value.trim(); if(!url)return;
+  loadTextureURL(url,(tex)=>{ if(tex2DImage) tex2DImage.dispose(); tex2DImage=tex; imgPlane.material.map=tex; imgPlane.material.needsUpdate=true; imgPlane.visible=true; vidPlane.visible=false;
+    const {width,height}=tex.image; fitPlaneToMedia(imgPlane,width,height,4); });
+});
+ui.vid2d.addEventListener('change',e=>{ const f=e.target.files?.[0]; if(!f)return; const url=URL.createObjectURL(f);
+  video2D.src=url; video2D.play().catch(()=>{}); vidPlane.visible=true; imgPlane.visible=false; video2D.onloadedmetadata=()=>fitPlaneToMedia(vidPlane,video2D.videoWidth,video2D.videoHeight,4);
+});
+ui.loadVid2d.addEventListener('click',()=>{ const url=ui.vid2dUrl.value.trim(); if(!url)return;
+  video2D.src=url; video2D.play().catch(()=>{}); vidPlane.visible=true; imgPlane.visible=false; video2D.onloadedmetadata=()=>fitPlaneToMedia(vidPlane,video2D.videoWidth,video2D.videoHeight,4);
+});
+ui.play2d.addEventListener('click',()=>{ if(video2D.paused) video2D.play(); else video2D.pause(); });
+
+/* 360 돔 로딩 */
+let tex360Image=null;
+ui.img360.addEventListener('change',e=>{ const f=e.target.files?.[0]; if(!f)return; const url=URL.createObjectURL(f);
+  loadTextureURL(url,(tex)=>{ if(tex360Image) tex360Image.dispose(); tex360Image=tex; sphere.material.map=tex; sphere.material.needsUpdate=true; URL.revokeObjectURL(url); });
+});
+ui.loadImg360.addEventListener('click',()=>{ const url=ui.img360Url.value.trim(); if(!url)return;
+  loadTextureURL(url,(tex)=>{ if(tex360Image) tex360Image.dispose(); tex360Image=tex; sphere.material.map=tex; sphere.material.needsUpdate=true; });
+});
+ui.vid360.addEventListener('change',e=>{ const f=e.target.files?.[0]; if(!f)return; const url=URL.createObjectURL(f);
+  video360.src=url; video360.play().catch(()=>{}); sphere.material.map=videoTex360; sphere.material.needsUpdate=true;
+});
+ui.loadVid360.addEventListener('click',()=>{ const url=ui.vid360Url.value.trim(); if(!url)return;
+  video360.src=url; video360.play().catch(()=>{}); sphere.material.map=videoTex360; sphere.material.needsUpdate=true;
+});
+ui.play360.addEventListener('click',()=>{ if(video360.paused) video360.play(); else video360.pause(); });
+
+/* 미디어 터널: 2D 비디오 로딩/제어 */
+ui.tunVidFile.addEventListener('change', e=>{
+  const f=e.target.files?.[0]; if(!f) return; const url=URL.createObjectURL(f);
+  videoTun.src=url; videoTun.muted=ui.tunVidMuted.checked; videoTun.loop=ui.tunVidLoop.checked; videoTun.play().catch(()=>{});
+});
+ui.tunVidLoadUrl.addEventListener('click', ()=>{
+  const url=ui.tunVidUrl.value.trim(); if(!url) return;
+  videoTun.src=url; videoTun.muted=ui.tunVidMuted.checked; videoTun.loop=ui.tunVidLoop.checked; videoTun.play().catch(()=>{});
+});
+ui.tunVidPlay.addEventListener('click', ()=>{ if(videoTun.paused) videoTun.play(); else videoTun.pause(); });
+ui.tunVidMuted.addEventListener('change', ()=> videoTun.muted = ui.tunVidMuted.checked );
+ui.tunVidLoop .addEventListener('change', ()=> videoTun.loop  = ui.tunVidLoop.checked );
+ui.autoFade.addEventListener('change', ()=>{ autoFadeOn = ui.autoFade.checked; tCycleStart = performance.now()/1000; });
+ui.fadeIn .addEventListener('input', ()=> ui.fadeInVal .textContent = `${Number(ui.fadeIn.value).toFixed(1)}s`);
+ui.holdOn .addEventListener('input', ()=> ui.holdOnVal .textContent = `${Number(ui.holdOn.value).toFixed(1)}s`);
+ui.fadeOut.addEventListener('input', ()=> ui.fadeOutVal.textContent = `${Number(ui.fadeOut.value).toFixed(1)}s`);
+ui.holdOff.addEventListener('input', ()=> ui.holdOffVal.textContent = `${Number(ui.holdOff.value).toFixed(1)}s`);
+ui.showNow.addEventListener('click', ()=>{ autoFadeOn=false; ui.autoFade.checked=false; mediaBandShader.uniforms.fade.value=1.0; if(videoTun.paused) videoTun.play().catch(()=>{}); });
+ui.hideNow.addEventListener('click', ()=>{ autoFadeOn=false; ui.autoFade.checked=false; mediaBandShader.uniforms.fade.value=0.0; if(ui.pauseWhenHidden.checked && !videoTun.paused) videoTun.pause(); });
+
+/* 360 오버레이(왼/오/상) 초기화/바인딩 */
+function bindOverlayUI(ov, uiSet){
+  ov.ui = uiSet; ov.titleEl = uiSet.title;
+  // 기본 표시 값 반영
+  function sync(){
+    ov.mat.uniforms.angC.value = parseFloat(uiSet.angC.value); uiSet.angCVal.textContent = Number(uiSet.angC.value).toFixed(2);
+    ov.mat.uniforms.angW.value = parseFloat(uiSet.angW.value); uiSet.angWVal.textContent = Number(uiSet.angW.value).toFixed(2);
+    ov.mat.uniforms.vC.value   = parseFloat(uiSet.vC.value);   uiSet.vCVal.textContent = Number(uiSet.vC.value).toFixed(2);
+    ov.mat.uniforms.vH.value   = parseFloat(uiSet.vH.value);   uiSet.vHVal.textContent = Number(uiSet.vH.value).toFixed(2);
+    ov.mat.uniforms.edge.value = parseFloat(uiSet.edge.value); uiSet.edgeVal.textContent= Number(uiSet.edge.value).toFixed(2);
+    ov.mat.uniforms.opacity.value = parseFloat(uiSet.opacity.value); uiSet.opacityVal.textContent = Number(uiSet.opacity.value).toFixed(2);
+    ov.pauseWhenHidden = uiSet.pauseHidden.checked;
+    ov.cyl.visible = uiSet.enable.checked;
+  }
+  ['input','change'].forEach(evt=>{
+    [uiSet.angC,uiSet.angW,uiSet.vC,uiSet.vH,uiSet.edge,uiSet.opacity,uiSet.pauseHidden,uiSet.enable]
+      .forEach(el=>el.addEventListener(evt, sync));
+  });
+  sync();
+
+  // AutoFade
+  uiSet.autoFade.addEventListener('change', ()=>{ ov.autoFade = uiSet.autoFade.checked; ov.cycleStart = performance.now()/1000; });
+  uiSet.fadeIn .addEventListener('input', ()=> uiSet.fadeInVal .textContent = `${Number(uiSet.fadeIn.value).toFixed(1)}s`);
+  uiSet.holdOn .addEventListener('input', ()=> uiSet.holdOnVal .textContent = `${Number(uiSet.holdOn.value).toFixed(1)}s`);
+  uiSet.fadeOut.addEventListener('input', ()=> uiSet.fadeOutVal.textContent = `${Number(uiSet.fadeOut.value).toFixed(1)}s`);
+  uiSet.holdOff.addEventListener('input', ()=> uiSet.holdOffVal.textContent = `${Number(uiSet.holdOff.value).toFixed(1)}s`);
+  uiSet.show.addEventListener('click', ()=>{ ov.autoFade=false; uiSet.autoFade.checked=false; ov.mat.uniforms.fade.value=1.0; if(ov.isVideo && ov.video.paused) ov.video.play().catch(()=>{}); });
+  uiSet.hide.addEventListener('click', ()=>{ ov.autoFade=false; uiSet.autoFade.checked=false; ov.mat.uniforms.fade.value=0.0; if(ov.pauseWhenHidden && ov.isVideo && !ov.video.paused) ov.video.pause(); });
+
+  // 파일/URL 로딩
+  uiSet.img.addEventListener('change', e=>{
+    const f=e.target.files?.[0]; if(!f) return; const url=URL.createObjectURL(f);
+    loadTextureURL(url, (tex)=>{ setOverlayTextureFromImage(ov, tex, f.name); URL.revokeObjectURL(url); ov.mat.uniforms.fade.value=1.0; });
+  });
+  uiSet.vid.addEventListener('change', e=>{
+    const f=e.target.files?.[0]; if(!f) return; const url=URL.createObjectURL(f);
+    ov.video.src=url; ov.video.muted=uiSet.muted.checked; ov.video.loop=uiSet.loop.checked; setOverlayTextureFromVideo(ov, f.name);
+  });
+  uiSet.load.addEventListener('click', ()=>{
+    const url=uiSet.url.value.trim(); if(!url) return;
+    const lc = url.toLowerCase();
+    if(lc.endsWith('.jpg')||lc.endsWith('.jpeg')||lc.endsWith('.png')||lc.endsWith('.webp')){
+      loadTextureURL(url, (tex)=>{ setOverlayTextureFromImage(ov, tex, fileTitleFromURL(url)); ov.mat.uniforms.fade.value=1.0; });
+    }else{
+      ov.video.src=url; ov.video.muted=uiSet.muted.checked; ov.video.loop=uiSet.loop.checked; setOverlayTextureFromVideo(ov, fileTitleFromURL(url));
+    }
+  });
+  uiSet.play.addEventListener('click', ()=>{ if(ov.video.paused) ov.video.play(); else ov.video.pause(); });
+  uiSet.muted.addEventListener('change', ()=> ov.video.muted = uiSet.muted.checked );
+  uiSet.loop .addEventListener('change', ()=> ov.video.loop  = uiSet.loop.checked );
+}
+bindOverlayUI(overlayL, ui.ovL);
+bindOverlayUI(overlayR, ui.ovR);
+bindOverlayUI(overlayT, ui.ovT);
+
+/* ---------- 리사이즈 & 루프 ---------- */
+function onResize(){
+  const w=window.innerWidth,h=window.innerHeight; camera.aspect=w/h; camera.updateProjectionMatrix();
+  renderer.setSize(w,h); composer.setSize(w,h);
+  const dpr=renderer.getPixelRatio(); reticlePass.uniforms.resolution.value.set(w*dpr,h*dpr);
+}
+window.addEventListener('resize', onResize);
+
+const clock=new THREE.Clock();
+// --- Autoplay unlock for videos (Chrome/Edge policy) ---
+(function(){
+  let unlocked = false;
+  const unlock = async () => {
+    if (unlocked) return;
+    unlocked = true;
+    try {
+      const list = [];
+      const pull = k => { try { return window[k]; } catch(_){ return null; } };
+      [pull('video2D'), pull('video360'), pull('videoTun')].forEach(v => { if (v && typeof v.play==='function') list.push(v); });
+      ['overlayL','overlayR','overlayT'].forEach(k => {
+        const o = pull(k);
+        if (o && o.video && typeof o.video.play==='function') list.push(o.video);
+      });
+      for (const v of list) {
+        try { v.muted = true; v.playsInline = true; await v.play(); v.pause(); } catch(_){}
+      }
+    } catch(_){}
+  };
+  window.addEventListener('pointerdown', unlock, { once: true });
+  window.addEventListener('keydown', unlock, { once: true });
+})();
+// --- end unlock ---
+renderer.setAnimationLoop(()=>{
+  const t=clock.getElapsedTime();
+
+  if(group3D.visible){
+    for(let i=1;i<group3D.children.length;i++){ const m=group3D.children[i]; if(m.isMesh){ m.rotation.y+=0.003; m.rotation.x+=0.0015; } }
+  }
+  if(groupTunnel.visible){
+    TunnelShader.uniforms.time.value = t;
+
+    // 목표물: 카메라 정면 + 펄스/드리프트
+    const dist = parseFloat(ui.tgtDist.value);
+    const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+    const basePos = new THREE.Vector3().copy(camera.position).add(dir.multiplyScalar(dist));
+    const drift = parseFloat(ui.tgtDrift.value);
+    target.position.copy(basePos).add(new THREE.Vector3(
+      Math.sin(t*0.9)*drift, Math.cos(t*0.7)*drift*0.6, Math.sin(t*1.3+1.0)*drift*0.5
+    ));
+    const pulse = 0.65 + 0.35*Math.abs(Math.sin(2*Math.PI*parseFloat(ui.tgtPulse.value)*t));
+    target.material.color.setRGB(pulse, pulse, 1.0);
+    target.material.opacity = 0.85;
+
+    // 2D 비디오 밴드 자동 페이드
+    cycleFade(t);
+
+    // 360 오버레이 자동 페이드
+    overlayCycle(overlayL, t);
+    overlayCycle(overlayR, t);
+    overlayCycle(overlayT, t);
+  }
+
+  controls.update();
+  reticlePass.uniforms.time.value = t;
+  composer.render();
+});
+
+// 초기 모드
+// 초기 모드: 라디오 체크 상태 우선
+(function(){
+  try {
+    const m = document.querySelector('input[name="mode"]:checked');
+    const initialMode = (m && m.value) ? m.value : '3d';
+    setMode(initialMode);
+  } catch(e) { try{ setMode('3d'); }catch(_){ } }
+})();
+// Ensure default flags for known videos
+(function(){
+  const names = ['video2D','video360','videoTun'];
+  names.forEach(n=>{
+    try{
+      const v = window[n];
+      if (v){
+        v.muted = true;
+        v.playsInline = true;
+        v.loop = v.loop ?? true;
+      }
+    }catch(_){}
+  });
+})();
+// WebXR availability hint near #vrSlot
+(function(){
+  try {
+    if (window.__webxr_hint_installed__) return;
+    window.__webxr_hint_installed__ = true;
+    const slot = document.getElementById('vrSlot');
+    if (!slot) return;
+    const msg = document.createElement('span');
+    msg.id = 'webxr-hint';
+    msg.style.fontSize = '12px';
+    msg.style.opacity = '0.8';
+    msg.style.marginLeft = '6px';
+    msg.style.whiteSpace = 'nowrap';
+    function update(){
+      const ok = (navigator.xr && navigator.isSecureContext);
+      msg.textContent = ok ? '' : 'HTTPS 또는 http://localhost 에서 Chrome/Edge로 실행하세요';
+    }
+    update();
+    setTimeout(update, 1500);
+    slot.appendChild(msg);
+  } catch(e){}
+})();
+
+
+// ---- Quick Test Panel wiring ----
+(function(){
+  function $(id){ return document.getElementById(id); }
+  const q2 = $('quick2d'), q360 = $('quick360');
+  const q2Play = $('q2Play'), q2Pause = $('q2Pause');
+  const q360Play = $('q360Play'), q360Pause = $('q360Pause');
+
+  function safe(v, fn){ try { fn(v); } catch(e){} }
+
+  if (q2) q2.addEventListener('change', e=>{
+    const f = e.target.files && e.target.files[0];
+    if (!f || !window.URL) return;
+    if (typeof video2D !== 'undefined') {
+      const url = URL.createObjectURL(f);
+      video2D.src = url;
+      video2D.muted = true; video2D.playsInline = true; video2D.loop = true;
+      safe(null, ()=>video2D.load());
+      safe(null, ()=>video2D.play().catch(()=>{}));
+      try {
+        if (typeof vidPlane!=='undefined') vidPlane.visible = true;
+        if (typeof imgPlane!=='undefined') imgPlane.visible = false;
+        if (typeof group2D!=='undefined') { group2D.visible = true; }
+        if (typeof group360!=='undefined') { group360.visible = false; }
+        if (typeof groupTunnel!=='undefined') { groupTunnel.visible = false; }
+      }catch(_){}
+    }
+  });
+
+  if (q360) q360.addEventListener('change', e=>{
+    const f = e.target.files && e.target.files[0];
+    if (!f || !window.URL) return;
+    if (typeof video360 !== 'undefined') {
+      const url = URL.createObjectURL(f);
+      video360.src = url;
+      video360.muted = true; video360.playsInline = true; video360.loop = true;
+      safe(null, ()=>video360.load());
+      safe(null, ()=>video360.play().catch(()=>{}));
+      try {
+        if (typeof videoTex360!=='undefined' && typeof sphere!=='undefined') {
+          if (sphere.material) { sphere.material.map = videoTex360; sphere.material.needsUpdate = true; }
+        }
+        if (typeof group360!=='undefined') { group360.visible = true; }
+        if (typeof group2D!=='undefined') { group2D.visible = false; }
+        if (typeof groupTunnel!=='undefined') { groupTunnel.visible = false; }
+      }catch(_){}
+    }
+  });
+
+  if (q2Play) q2Play.addEventListener('click', ()=>{ try{ video2D && video2D.play(); }catch(_){}});
+  if (q2Pause) q2Pause.addEventListener('click', ()=>{ try{ video2D && video2D.pause(); }catch(_){}});
+  if (q360Play) q360Play.addEventListener('click', ()=>{ try{ video360 && video360.play(); }catch(_){}});
+  if (q360Pause) q360Pause.addEventListener('click', ()=>{ try{ video360 && video360.pause(); }catch(_){}});
+})();
+// ---- end Quick Test Panel wiring ----
+</script>
+
+<script>
+// --- Runtime diagnostics overlay ---
+(function(){
+  const box = document.createElement('div');
+  box.id = 'debugOverlay';
+  box.style.cssText = 'position:fixed;right:10px;bottom:10px;background:rgba(0,0,0,.6);color:#0f0;font:12px/1.4 monospace;padding:8px 10px;border:1px solid #090;z-index:999999;max-width:42vw;max-height:40vh;overflow:auto;border-radius:6px';
+  box.innerHTML = '<b>Diagnostics</b><br>';
+  document.addEventListener('DOMContentLoaded', () => {
+    document.body.appendChild(box);
+    add('proto', location.protocol);
+    add('secure', String(!!(window.isSecureContext)));
+    add('xr', String(!!(navigator.xr)));
+    add('canvas#c', String(!!document.getElementById('c')));
+  });
+  function add(k, v){ box.innerHTML += k+': '+v+'<br>'; }
+  window.addEventListener('error', e => {
+    add('error', (e && e.message) ? e.message : 'unknown');
+  });
+  window.addEventListener('unhandledrejection', e => {
+    try {
+      add('promise', (e && e.reason && (e.reason.message||e.reason)) + '');
+    } catch(_) { add('promise', 'unknown'); }
+  });
+  window.__diag = { add };
+})();
+</script>
+</body>
+</html>
