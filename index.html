@@ -75,6 +75,31 @@
       <div class="row"><label for="tunDark">어둡기</label><input id="tunDark" type="range" min="0" max="1" step="0.01" value="0.75"/><span id="tunDarkVal" class="small">0.75</span></div>
       <div class="row"><label for="tunTint">터널 틴트</label><input id="tunTint" type="color" value="#0a0f2a"/></div>
 
+      <!-- 표적(타깃) 컨트롤: 터널에서 가운데 작은 구체의 거리/크기/펄스/드리프트 -->
+      <div class="group" style="margin-top:10px">
+        <div class="row"><strong>표적(타깃) 컨트롤</strong></div>
+        <div class="row">
+          <label for="tgtDist">거리 (m)</label>
+          <input id="tgtDist" type="range" min="0.5" max="6.0" step="0.1" value="2.0"/>
+          <span id="tgtDistVal" class="small">2.0 m</span>
+        </div>
+        <div class="row">
+          <label for="tgtSize">크기</label>
+          <input id="tgtSize" type="range" min="0.04" max="0.30" step="0.005" value="0.08"/>
+          <span id="tgtSizeVal" class="small">0.08</span>
+        </div>
+        <div class="row">
+          <label for="tgtPulse">펄스 (Hz)</label>
+          <input id="tgtPulse" type="range" min="0" max="5" step="0.01" value="1.20"/>
+          <span id="tgtPulseVal" class="small">1.20 Hz</span>
+        </div>
+        <div class="row">
+          <label for="tgtDrift">드리프트</label>
+          <input id="tgtDrift" type="range" min="0" max="0.5" step="0.01" value="0.12"/>
+          <span id="tgtDriftVal" class="small">0.12</span>
+        </div>
+      </div>
+
       <!-- (기존) 미디어 터널: 2D 비디오를 원통 내 띠로 표시 -->
       <div class="group" style="margin-top:10px">
         <div class="row"><strong>미디어 터널(2D 비디오 랩)</strong></div>
@@ -233,11 +258,11 @@ renderer.xr.enabled = true;
     vrBtn.style.cursor = 'pointer';
     const slot = document.getElementById('vrSlot');
     (function mountVR(){
-  const s = document.getElementById('vrSlot') || document.body;
-  if (s) { try { s.appendChild(vrBtn); } catch(e){} }
-  else { setTimeout(mountVR, 50); }
-})();
-window.addEventListener('DOMContentLoaded', ()=>{ try { const t = document.getElementById('vrSlot'); if (t && !t.contains(vrBtn)) t.appendChild(vrBtn); } catch(e){} });
+      const s = document.getElementById('vrSlot') || document.body;
+      if (s) { try { s.appendChild(vrBtn); } catch(e){} }
+      else { setTimeout(mountVR, 50); }
+    })();
+    window.addEventListener('DOMContentLoaded', ()=>{ try { const t = document.getElementById('vrSlot'); if (t && !t.contains(vrBtn)) t.appendChild(vrBtn); } catch(e){} });
   } catch(e) { console.warn('VRButton mount fallback', e); }
 })();
 
@@ -290,7 +315,7 @@ const groupTunnel = new THREE.Group(); groupTunnel.visible=false; scene.add(grou
 const TunnelShader = {
   uniforms:{ time:{value:0}, speed:{value:1.2}, repeatY:{value:24.0}, spokes:{value:6.0}, darkness:{value:0.75}, tint:{value:new THREE.Color('#0a0f2a')} },
   vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-  fragmentShader:/*glsl*/`
+  fragmentShader:`
     precision highp float; varying vec2 vUv;
     uniform float time, speed, repeatY, spokes, darkness; uniform vec3 tint;
     void main(){
@@ -324,7 +349,7 @@ const videoTexTun = new THREE.VideoTexture(videoTun); videoTexTun.colorSpace=THR
 const mediaBandShader = {
   uniforms:{ tVideo:{value:videoTexTun}, fade:{value:0.0}, bandCenter:{value:0.5}, bandHeight:{value:0.35}, bandEdge:{value:0.03}, maxOpacity:{value:0.95} },
   vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-  fragmentShader:/*glsl*/`
+  fragmentShader:`
     precision highp float; varying vec2 vUv; uniform sampler2D tVideo;
     uniform float fade, bandCenter, bandHeight, bandEdge, maxOpacity;
     void main(){
@@ -375,7 +400,7 @@ const OverlayWindowShader = {
     edge:{value:0.03}
   }),
   vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-  fragmentShader:/*glsl*/`
+  fragmentShader:`
     precision highp float; varying vec2 vUv; uniform sampler2D tMedia;
     uniform float fade, opacity, angC, angW, vC, vH, edge;
     // 원형(0..1)에서 래핑 고려한 각도 거리
@@ -468,7 +493,7 @@ const ReticleShakeShader = {
     'resolution':{value:new THREE.Vector2(window.innerWidth*renderer.getPixelRatio(), window.innerHeight*renderer.getPixelRatio())},
     'enableEffect':{value:true}},
   vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position,1.0); }`,
-  fragmentShader:/*glsl*/`
+  fragmentShader:`
     precision highp float; varying vec2 vUv; uniform sampler2D tDiffuse; uniform float time;
     uniform vec2 center; uniform float radius, edge, ringThickness, ringOpacity, shakeAmpPx, shakeFreq, blurSigmaPx; 
     uniform vec3 ringColor; uniform vec2 resolution; uniform bool enableEffect;
@@ -609,6 +634,7 @@ function syncFX(){
 }
 ['input','change'].forEach(evt=>{
   [ui.enable,ui.radius,ui.edge,ui.ring,ui.ringOpacity,ui.ringColor,ui.shakeAmp,ui.shakeFreq,ui.blurSigma]
+    .filter(Boolean)
     .forEach(el=>el.addEventListener(evt, syncFX));
 });
 syncFX();
@@ -627,6 +653,7 @@ function syncTunnel(){
 }
 ['input','change'].forEach(evt=>{
   [ui.tunSpeed,ui.tunRepeat,ui.tunSpokes,ui.tunDark,ui.tunTint]
+    .filter(Boolean)
     .forEach(el=>el.addEventListener(evt, syncTunnel));
 });
 syncTunnel();
@@ -640,7 +667,9 @@ function syncTarget(){
   ui.tgtDriftVal.textContent = Number(ui.tgtDrift.value).toFixed(2);
 }
 ['input','change'].forEach(evt=>{
-  [ui.tgtDist,ui.tgtSize,ui.tgtPulse,ui.tgtDrift].forEach(el=>el.addEventListener(evt, syncTarget));
+  [ui.tgtDist,ui.tgtSize,ui.tgtPulse,ui.tgtDrift]
+    .filter(Boolean)
+    .forEach(el=>el.addEventListener(evt, syncTarget));
 });
 syncTarget();
 
@@ -656,7 +685,9 @@ function syncMediaBand(){
   ui.bandOpacityVal.textContent = Number(ui.bandOpacity.value).toFixed(2);
 }
 ['input','change'].forEach(evt=>{
-  [ui.bandCenter,ui.bandHeight,ui.bandEdge,ui.bandOpacity].forEach(el=>el.addEventListener(evt, syncMediaBand));
+  [ui.bandCenter,ui.bandHeight,ui.bandEdge,ui.bandOpacity]
+    .filter(Boolean)
+    .forEach(el=>el.addEventListener(evt, syncMediaBand));
 });
 syncMediaBand();
 
@@ -677,57 +708,57 @@ document.querySelectorAll('input[name="mode"]').forEach(r=>r.addEventListener('c
 /* 2D 로딩 */
 let tex2DImage=null;
 function fitPlaneToMedia(mesh,w,h,targetW=4){ if(!w||!h)return; const ar=h/w; mesh.scale.set(1, ar*targetW/4, 1); }
-ui.img2d.addEventListener('change',e=>{ const f=e.target.files?.[0]; if(!f)return; const url=URL.createObjectURL(f);
+ui.img2d && ui.img2d.addEventListener('change',e=>{ const f=e.target.files?.[0]; if(!f)return; const url=URL.createObjectURL(f);
   loadTextureURL(url,(tex)=>{ if(tex2DImage) tex2DImage.dispose(); tex2DImage=tex; imgPlane.material.map=tex; imgPlane.material.needsUpdate=true; imgPlane.visible=true; vidPlane.visible=false;
     const {width,height}=tex.image; fitPlaneToMedia(imgPlane,width,height,4); URL.revokeObjectURL(url); });
 });
-ui.loadImg2d.addEventListener('click',()=>{ const url=ui.img2dUrl.value.trim(); if(!url)return;
+ui.loadImg2d && ui.loadImg2d.addEventListener('click',()=>{ const url=ui.img2dUrl.value.trim(); if(!url)return;
   loadTextureURL(url,(tex)=>{ if(tex2DImage) tex2DImage.dispose(); tex2DImage=tex; imgPlane.material.map=tex; imgPlane.material.needsUpdate=true; imgPlane.visible=true; vidPlane.visible=false;
     const {width,height}=tex.image; fitPlaneToMedia(imgPlane,width,height,4); });
 });
-ui.vid2d.addEventListener('change',e=>{ const f=e.target.files?.[0]; if(!f)return; const url=URL.createObjectURL(f);
+ui.vid2d && ui.vid2d.addEventListener('change',e=>{ const f=e.target.files?.[0]; if(!f)return; const url=URL.createObjectURL(f);
   video2D.src=url; video2D.play().catch(()=>{}); vidPlane.visible=true; imgPlane.visible=false; video2D.onloadedmetadata=()=>fitPlaneToMedia(vidPlane,video2D.videoWidth,video2D.videoHeight,4);
 });
-ui.loadVid2d.addEventListener('click',()=>{ const url=ui.vid2dUrl.value.trim(); if(!url)return;
+ui.loadVid2d && ui.loadVid2d.addEventListener('click',()=>{ const url=ui.vid2dUrl.value.trim(); if(!url)return;
   video2D.src=url; video2D.play().catch(()=>{}); vidPlane.visible=true; imgPlane.visible=false; video2D.onloadedmetadata=()=>fitPlaneToMedia(vidPlane,video2D.videoWidth,video2D.videoHeight,4);
 });
-ui.play2d.addEventListener('click',()=>{ if(video2D.paused) video2D.play(); else video2D.pause(); });
+ui.play2d && ui.play2d.addEventListener('click',()=>{ if(video2D.paused) video2D.play(); else video2D.pause(); });
 
 /* 360 돔 로딩 */
 let tex360Image=null;
-ui.img360.addEventListener('change',e=>{ const f=e.target.files?.[0]; if(!f)return; const url=URL.createObjectURL(f);
+ui.img360 && ui.img360.addEventListener('change',e=>{ const f=e.target.files?.[0]; if(!f)return; const url=URL.createObjectURL(f);
   loadTextureURL(url,(tex)=>{ if(tex360Image) tex360Image.dispose(); tex360Image=tex; sphere.material.map=tex; sphere.material.needsUpdate=true; URL.revokeObjectURL(url); });
 });
-ui.loadImg360.addEventListener('click',()=>{ const url=ui.img360Url.value.trim(); if(!url)return;
+ui.loadImg360 && ui.loadImg360.addEventListener('click',()=>{ const url=ui.img360Url.value.trim(); if(!url)return;
   loadTextureURL(url,(tex)=>{ if(tex360Image) tex360Image.dispose(); tex360Image=tex; sphere.material.map=tex; sphere.material.needsUpdate=true; });
 });
-ui.vid360.addEventListener('change',e=>{ const f=e.target.files?.[0]; if(!f)return; const url=URL.createObjectURL(f);
+ui.vid360 && ui.vid360.addEventListener('change',e=>{ const f=e.target.files?.[0]; if(!f)return; const url=URL.createObjectURL(f);
   video360.src=url; video360.play().catch(()=>{}); sphere.material.map=videoTex360; sphere.material.needsUpdate=true;
 });
-ui.loadVid360.addEventListener('click',()=>{ const url=ui.vid360Url.value.trim(); if(!url)return;
+ui.loadVid360 && ui.loadVid360.addEventListener('click',()=>{ const url=ui.vid360Url.value.trim(); if(!url)return;
   video360.src=url; video360.play().catch(()=>{}); sphere.material.map=videoTex360; sphere.material.needsUpdate=true;
 });
-ui.play360.addEventListener('click',()=>{ if(video360.paused) video360.play(); else video360.pause(); });
+ui.play360 && ui.play360.addEventListener('click',()=>{ if(video360.paused) video360.play(); else video360.pause(); });
 
 /* 미디어 터널: 2D 비디오 로딩/제어 */
-ui.tunVidFile.addEventListener('change', e=>{
+ui.tunVidFile && ui.tunVidFile.addEventListener('change', e=>{
   const f=e.target.files?.[0]; if(!f) return; const url=URL.createObjectURL(f);
   videoTun.src=url; videoTun.muted=ui.tunVidMuted.checked; videoTun.loop=ui.tunVidLoop.checked; videoTun.play().catch(()=>{});
 });
-ui.tunVidLoadUrl.addEventListener('click', ()=>{
+ui.tunVidLoadUrl && ui.tunVidLoadUrl.addEventListener('click', ()=>{
   const url=ui.tunVidUrl.value.trim(); if(!url) return;
   videoTun.src=url; videoTun.muted=ui.tunVidMuted.checked; videoTun.loop=ui.tunVidLoop.checked; videoTun.play().catch(()=>{});
 });
-ui.tunVidPlay.addEventListener('click', ()=>{ if(videoTun.paused) videoTun.play(); else videoTun.pause(); });
-ui.tunVidMuted.addEventListener('change', ()=> videoTun.muted = ui.tunVidMuted.checked );
-ui.tunVidLoop .addEventListener('change', ()=> videoTun.loop  = ui.tunVidLoop.checked );
-ui.autoFade.addEventListener('change', ()=>{ autoFadeOn = ui.autoFade.checked; tCycleStart = performance.now()/1000; });
-ui.fadeIn .addEventListener('input', ()=> ui.fadeInVal .textContent = `${Number(ui.fadeIn.value).toFixed(1)}s`);
-ui.holdOn .addEventListener('input', ()=> ui.holdOnVal .textContent = `${Number(ui.holdOn.value).toFixed(1)}s`);
-ui.fadeOut.addEventListener('input', ()=> ui.fadeOutVal.textContent = `${Number(ui.fadeOut.value).toFixed(1)}s`);
-ui.holdOff.addEventListener('input', ()=> ui.holdOffVal.textContent = `${Number(ui.holdOff.value).toFixed(1)}s`);
-ui.showNow.addEventListener('click', ()=>{ autoFadeOn=false; ui.autoFade.checked=false; mediaBandShader.uniforms.fade.value=1.0; if(videoTun.paused) videoTun.play().catch(()=>{}); });
-ui.hideNow.addEventListener('click', ()=>{ autoFadeOn=false; ui.autoFade.checked=false; mediaBandShader.uniforms.fade.value=0.0; if(ui.pauseWhenHidden.checked && !videoTun.paused) videoTun.pause(); });
+ui.tunVidPlay && ui.tunVidPlay.addEventListener('click', ()=>{ if(videoTun.paused) videoTun.play(); else videoTun.pause(); });
+ui.tunVidMuted && ui.tunVidMuted.addEventListener('change', ()=> videoTun.muted = ui.tunVidMuted.checked );
+ui.tunVidLoop  && ui.tunVidLoop .addEventListener('change', ()=> videoTun.loop  = ui.tunVidLoop.checked );
+ui.autoFade    && ui.autoFade.addEventListener('change', ()=>{ autoFadeOn = ui.autoFade.checked; tCycleStart = performance.now()/1000; });
+ui.fadeIn      && ui.fadeIn .addEventListener('input', ()=> ui.fadeInVal .textContent = `${Number(ui.fadeIn.value).toFixed(1)}s`);
+ui.holdOn      && ui.holdOn .addEventListener('input', ()=> ui.holdOnVal .textContent = `${Number(ui.holdOn.value).toFixed(1)}s`);
+ui.fadeOut     && ui.fadeOut.addEventListener('input', ()=> ui.fadeOutVal.textContent = `${Number(ui.fadeOut.value).toFixed(1)}s`);
+ui.holdOff     && ui.holdOff.addEventListener('input', ()=> ui.holdOffVal.textContent = `${Number(ui.holdOff.value).toFixed(1)}s`);
+ui.showNow     && ui.showNow.addEventListener('click', ()=>{ autoFadeOn=false; ui.autoFade.checked=false; mediaBandShader.uniforms.fade.value=1.0; if(videoTun.paused) videoTun.play().catch(()=>{}); });
+ui.hideNow     && ui.hideNow.addEventListener('click', ()=>{ autoFadeOn=false; ui.autoFade.checked=false; mediaBandShader.uniforms.fade.value=0.0; if(ui.pauseWhenHidden.checked && !videoTun.paused) videoTun.pause(); });
 
 /* 360 오버레이(왼/오/상) 초기화/바인딩 */
 function bindOverlayUI(ov, uiSet){
@@ -745,29 +776,30 @@ function bindOverlayUI(ov, uiSet){
   }
   ['input','change'].forEach(evt=>{
     [uiSet.angC,uiSet.angW,uiSet.vC,uiSet.vH,uiSet.edge,uiSet.opacity,uiSet.pauseHidden,uiSet.enable]
+      .filter(Boolean)
       .forEach(el=>el.addEventListener(evt, sync));
   });
   sync();
 
   // AutoFade
-  uiSet.autoFade.addEventListener('change', ()=>{ ov.autoFade = uiSet.autoFade.checked; ov.cycleStart = performance.now()/1000; });
-  uiSet.fadeIn .addEventListener('input', ()=> uiSet.fadeInVal .textContent = `${Number(uiSet.fadeIn.value).toFixed(1)}s`);
-  uiSet.holdOn .addEventListener('input', ()=> uiSet.holdOnVal .textContent = `${Number(uiSet.holdOn.value).toFixed(1)}s`);
-  uiSet.fadeOut.addEventListener('input', ()=> uiSet.fadeOutVal.textContent = `${Number(uiSet.fadeOut.value).toFixed(1)}s`);
-  uiSet.holdOff.addEventListener('input', ()=> uiSet.holdOffVal.textContent = `${Number(uiSet.holdOff.value).toFixed(1)}s`);
-  uiSet.show.addEventListener('click', ()=>{ ov.autoFade=false; uiSet.autoFade.checked=false; ov.mat.uniforms.fade.value=1.0; if(ov.isVideo && ov.video.paused) ov.video.play().catch(()=>{}); });
-  uiSet.hide.addEventListener('click', ()=>{ ov.autoFade=false; uiSet.autoFade.checked=false; ov.mat.uniforms.fade.value=0.0; if(ov.pauseWhenHidden && ov.isVideo && !ov.video.paused) ov.video.pause(); });
+  uiSet.autoFade && uiSet.autoFade.addEventListener('change', ()=>{ ov.autoFade = uiSet.autoFade.checked; ov.cycleStart = performance.now()/1000; });
+  uiSet.fadeIn   && uiSet.fadeIn .addEventListener('input', ()=> uiSet.fadeInVal .textContent = `${Number(uiSet.fadeIn.value).toFixed(1)}s`);
+  uiSet.holdOn   && uiSet.holdOn .addEventListener('input', ()=> uiSet.holdOnVal .textContent = `${Number(uiSet.holdOn.value).toFixed(1)}s`);
+  uiSet.fadeOut  && uiSet.fadeOut.addEventListener('input', ()=> uiSet.fadeOutVal.textContent = `${Number(uiSet.fadeOut.value).toFixed(1)}s`);
+  uiSet.holdOff  && uiSet.holdOff.addEventListener('input', ()=> uiSet.holdOffVal.textContent = `${Number(uiSet.holdOff.value).toFixed(1)}s`);
+  uiSet.show     && uiSet.show.addEventListener('click', ()=>{ ov.autoFade=false; uiSet.autoFade.checked=false; ov.mat.uniforms.fade.value=1.0; if(ov.isVideo && ov.video.paused) ov.video.play().catch(()=>{}); });
+  uiSet.hide     && uiSet.hide.addEventListener('click', ()=>{ ov.autoFade=false; uiSet.autoFade.checked=false; ov.mat.uniforms.fade.value=0.0; if(ov.pauseWhenHidden && ov.isVideo && !ov.video.paused) ov.video.pause(); });
 
   // 파일/URL 로딩
-  uiSet.img.addEventListener('change', e=>{
+  uiSet.img && uiSet.img.addEventListener('change', e=>{
     const f=e.target.files?.[0]; if(!f) return; const url=URL.createObjectURL(f);
     loadTextureURL(url, (tex)=>{ setOverlayTextureFromImage(ov, tex, f.name); URL.revokeObjectURL(url); ov.mat.uniforms.fade.value=1.0; });
   });
-  uiSet.vid.addEventListener('change', e=>{
+  uiSet.vid && uiSet.vid.addEventListener('change', e=>{
     const f=e.target.files?.[0]; if(!f) return; const url=URL.createObjectURL(f);
     ov.video.src=url; ov.video.muted=uiSet.muted.checked; ov.video.loop=uiSet.loop.checked; setOverlayTextureFromVideo(ov, f.name);
   });
-  uiSet.load.addEventListener('click', ()=>{
+  uiSet.load && uiSet.load.addEventListener('click', ()=>{
     const url=uiSet.url.value.trim(); if(!url) return;
     const lc = url.toLowerCase();
     if(lc.endsWith('.jpg')||lc.endsWith('.jpeg')||lc.endsWith('.png')||lc.endsWith('.webp')){
@@ -776,9 +808,9 @@ function bindOverlayUI(ov, uiSet){
       ov.video.src=url; ov.video.muted=uiSet.muted.checked; ov.video.loop=uiSet.loop.checked; setOverlayTextureFromVideo(ov, fileTitleFromURL(url));
     }
   });
-  uiSet.play.addEventListener('click', ()=>{ if(ov.video.paused) ov.video.play(); else ov.video.pause(); });
-  uiSet.muted.addEventListener('change', ()=> ov.video.muted = uiSet.muted.checked );
-  uiSet.loop .addEventListener('change', ()=> ov.video.loop  = uiSet.loop.checked );
+  uiSet.play  && uiSet.play.addEventListener('click', ()=>{ if(ov.video.paused) ov.video.play(); else ov.video.pause(); });
+  uiSet.muted && uiSet.muted.addEventListener('change', ()=> ov.video.muted = uiSet.muted.checked );
+  uiSet.loop  && uiSet.loop .addEventListener('change', ()=> ov.video.loop  = uiSet.loop.checked );
 }
 bindOverlayUI(overlayL, ui.ovL);
 bindOverlayUI(overlayR, ui.ovR);
@@ -791,6 +823,7 @@ function onResize(){
   const dpr=renderer.getPixelRatio(); reticlePass.uniforms.resolution.value.set(w*dpr,h*dpr);
 }
 window.addEventListener('resize', onResize);
+onResize();
 
 const clock=new THREE.Clock();
 // --- Autoplay unlock for videos (Chrome/Edge policy) ---
@@ -851,7 +884,6 @@ renderer.setAnimationLoop(()=>{
   composer.render();
 });
 
-// 초기 모드
 // 초기 모드: 라디오 체크 상태 우선
 (function(){
   try {
@@ -896,7 +928,6 @@ renderer.setAnimationLoop(()=>{
     slot.appendChild(msg);
   } catch(e){}
 })();
-
 
 // ---- Quick Test Panel wiring ----
 (function(){
